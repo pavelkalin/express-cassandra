@@ -19,7 +19,7 @@ try {
 const cql = Promise.promisifyAll(dseDriver || require('cassandra-driver'));
 
 const ORM = Promise.promisifyAll(require('./orm/apollo'));
-const readdirpAsync = Promise.promisify(require('readdirp'));
+const { readdirpPromise } = require('readdirp');
 const debug = require('debug')('express-cassandra');
 
 const exporter = require('./utils/exporter');
@@ -65,20 +65,18 @@ CassandraClient.bind = (options, cb) => {
   CassandraClient.orm = new ORM(options.clientOptions, options.ormOptions);
   CassandraClient.orm = Promise.promisifyAll(CassandraClient.orm);
   CassandraClient.orm.initAsync()
-    .then(() => readdirpAsync({
-      root: CassandraClient.directory,
-      fileFilter: [
-        '*.js', '*.javascript', '*.jsx', '*.coffee', '*.coffeescript', '*.iced',
-        '*.script', '*.ts', '*.tsx', '*.typescript', '*.cjsx', '*.co', '*.json',
-        '*.json5', '*.litcoffee', '*.liticed', '*.ls', '*.node', '*.toml',
-        '*.wisp', '*.cjs',
-      ],
+    .then(() => readdirpPromise(CassandraClient.directory, {
+      fileFilter: (file) => {
+        const acceptedExtensions = ['.js', '.javascript', '.jsx', '.coffee', '.coffeescript', '.iced', '.script', '.ts', '.tsx', '.typescript', '.cjsx', '.co', '.json', '.json5', '.litcoffee', '.liticed', '.ls', '.node', '.toml', '.wisp', '.cjs'];
+        // Check the file extension using the `basename`
+        return acceptedExtensions.some((ext) => file.basename.endsWith(ext));
+      },
     }))
     .then((fileList) => {
       const syncModelTasks = [];
       const syncModelFileToDBAsync = Promise.promisify(CassandraClient.syncModelFileToDB);
-      fileList = fileList.files;
       fileList.forEach((file) => {
+        file.name = file.dirent.name;
         syncModelTasks.push(syncModelFileToDBAsync(file));
       });
       return Promise.all(syncModelTasks);
@@ -133,12 +131,10 @@ CassandraClient.export = function f(fixtureDirectory, callback) {
 
   systemClient.connect()
     .then(() => this.getTableListAsync())
-    .then((tables) => Promise.each(tables, (table) => exporter.processTableExport(
-      systemClient,
-      fixtureDirectory,
-      keyspace,
-      table,
-    )))
+    .then((tables) => Promise.each(
+      tables,
+      (table) => exporter.processTableExport(systemClient, fixtureDirectory, keyspace, table),
+    ))
     .then(() => systemClient.shutdown())
     .then(() => {
       debug('==================================================');
@@ -170,13 +166,10 @@ CassandraClient.import = function f(fixtureDirectory, options, callback) {
 
   systemClient.connect()
     .then(() => this.getTableListAsync())
-    .then((tables) => Promise.each(tables, (table) => importer.processTableImport(
-      systemClient,
-      fixtureDirectory,
-      keyspace,
-      table,
-      options.batchSize,
-    )))
+    .then((tables) => Promise.each(
+      tables,
+      (table) => importer.processTableImport(systemClient, fixtureDirectory, keyspace, table, options.batchSize),
+    ))
     .then(() => systemClient.shutdown())
     .then(() => {
       debug('==================================================');
@@ -278,9 +271,8 @@ CassandraClient.doBatch = function f(queries, options, callback) {
 
 CassandraClient.doBatchAsync = Promise.promisify(CassandraClient.doBatch);
 
-CassandraClient._translateFileNameToModelName = (fileName) => (
-  fileName.slice(0, fileName.lastIndexOf('.')).replace('Model', '')
-);
+CassandraClient._translateFileNameToModelName = (fileName) => (fileName.slice(0, fileName.lastIndexOf('.'))
+  .replace('Model', ''));
 
 Object.defineProperties(CassandraClient, {
   consistencies: {

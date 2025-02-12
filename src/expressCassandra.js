@@ -68,7 +68,6 @@ CassandraClient.bind = (options, cb) => {
     .then(() => readdirpPromise(CassandraClient.directory, {
       fileFilter: (file) => {
         const acceptedExtensions = ['.js', '.javascript', '.jsx', '.coffee', '.coffeescript', '.iced', '.script', '.ts', '.tsx', '.typescript', '.cjsx', '.co', '.json', '.json5', '.litcoffee', '.liticed', '.ls', '.node', '.toml', '.wisp', '.cjs'];
-        // Check the file extension using the `basename`
         return acceptedExtensions.some((ext) => file.basename.endsWith(ext));
       },
     }))
@@ -131,10 +130,12 @@ CassandraClient.export = function f(fixtureDirectory, callback) {
 
   systemClient.connect()
     .then(() => this.getTableListAsync())
-    .then((tables) => Promise.each(
-      tables,
-      (table) => exporter.processTableExport(systemClient, fixtureDirectory, keyspace, table),
-    ))
+    .then((tables) => Promise.each(tables, (table) => exporter.processTableExport(
+      systemClient,
+      fixtureDirectory,
+      keyspace,
+      table,
+    )))
     .then(() => systemClient.shutdown())
     .then(() => {
       debug('==================================================');
@@ -166,10 +167,13 @@ CassandraClient.import = function f(fixtureDirectory, options, callback) {
 
   systemClient.connect()
     .then(() => this.getTableListAsync())
-    .then((tables) => Promise.each(
-      tables,
-      (table) => importer.processTableImport(systemClient, fixtureDirectory, keyspace, table, options.batchSize),
-    ))
+    .then((tables) => Promise.each(tables, (table) => importer.processTableImport(
+      systemClient,
+      fixtureDirectory,
+      keyspace,
+      table,
+      options.batchSize,
+    )))
     .then(() => systemClient.shutdown())
     .then(() => {
       debug('==================================================');
@@ -271,8 +275,9 @@ CassandraClient.doBatch = function f(queries, options, callback) {
 
 CassandraClient.doBatchAsync = Promise.promisify(CassandraClient.doBatch);
 
-CassandraClient._translateFileNameToModelName = (fileName) => (fileName.slice(0, fileName.lastIndexOf('.'))
-  .replace('Model', ''));
+CassandraClient._translateFileNameToModelName = (fileName) => (
+  fileName.slice(0, fileName.lastIndexOf('.')).replace('Model', '')
+);
 
 Object.defineProperties(CassandraClient, {
   consistencies: {
